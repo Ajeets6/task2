@@ -1,5 +1,3 @@
 [build]
-  functions = "functions"
+  functions = "functions/"
 
-[dev]
-  functionsPort = 3000
