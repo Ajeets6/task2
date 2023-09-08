@@ -1,55 +1,61 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
+
+	"github.com/aws/aws-lambda-go/events"
+	"github.com/aws/aws-lambda-go/lambda"
 )
 
-func main() {
-	http.HandleFunc("/.netlify/functions/api", apiHandler)
-	http.ListenAndServe(":9000", nil)
+// APIResponse defines the response structure.
+type APIResponse struct {
+	IsSuccess       bool     `json:"is_success"`
+	UserID          string   `json:"user_id"`
+	OperationCode   string   `json:"operation_code"`
+	Message         string   `json:"message,omitempty"`
+	Email           string   `json:"email,omitempty"`
+	RollNumber      string   `json:"roll_number,omitempty"`
+	Numbers         []string `json:"numbers,omitempty"`
+	Alphabets       []string `json:"alphabets,omitempty"`
+	HighestAlphabet []string `json:"highest_alphabet,omitempty"`
 }
 
-func apiHandler(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		operationCode := generateOperationCode()
-		response := map[string]interface{}{
-			"is_success":     true,
-			"user_id":        generateUserID(),
-			"operation_code": operationCode,
-		}
-		jsonResponse(w, response)
-	case http.MethodPost:
-		decoder := json.NewDecoder(r.Body)
-		var data map[string]interface{}
-		err := decoder.Decode(&data)
-		if err != nil {
-			jsonResponse(w, map[string]interface{}{
-				"is_success": false,
-				"user_id":    generateUserID(),
-				"message":    "Invalid JSON data",
-			})
-			return
-		}
+func main() {
+	lambda.Start(apiHandler)
+}
 
-		inputData, ok := data["data"].([]interface{})
-		if !ok {
-			jsonResponse(w, map[string]interface{}{
-				"is_success": false,
-				"user_id":    generateUserID(),
-				"message":    "Invalid input data",
-			})
-			return
+func apiHandler(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	switch request.HTTPMethod {
+	case "GET":
+		operationCode := generateOperationCode()
+		response := APIResponse{
+			IsSuccess:     true,
+			UserID:        generateUserID(),
+			OperationCode: operationCode,
+		}
+		return createResponse(http.StatusOK, response), nil
+
+	case "POST":
+		var inputData struct {
+			Data []string `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(request.Body), &inputData); err != nil {
+			response := APIResponse{
+				IsSuccess: false,
+				UserID:    generateUserID(),
+				Message:   "Invalid JSON data",
+			}
+			return createResponse(http.StatusBadRequest, response), nil
 		}
 
 		var alphabets []string
-		for _, char := range inputData {
-			if s, isString := char.(string); isString {
-				if len(s) == 1 && strings.ContainsAny(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") {
-					alphabets = append(alphabets, s)
-				}
+		for _, char := range inputData.Data {
+			if len(char) == 1 && strings.ContainsAny(char, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+				alphabets = append(alphabets, char)
 			}
 		}
 
@@ -58,18 +64,24 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 			highestAlphabet = findHighestAlphabet(alphabets)
 		}
 
-		response := map[string]interface{}{
-			"is_success":     true,
-			"user_id":        generateUserID(),
-			"email":          "rk5532@srmist.edu.in",
-			"roll_number":    "RA2011030020043",
-			"numbers":        extractNumbers(inputData),
-			"alphabets":      alphabets,
-			"highest_alphabet": []string{highestAlphabet},
+		response := APIResponse{
+			IsSuccess:     true,
+			UserID:        generateUserID(),
+			Email:         "rk5532@srmist.edu.in",
+			RollNumber:    "RA2011030020043",
+			Numbers:       extractNumbers(inputData.Data),
+			Alphabets:     alphabets,
+			HighestAlphabet: []string{highestAlphabet},
 		}
-		jsonResponse(w, response)
+		return createResponse(http.StatusOK, response), nil
+
 	default:
-		http.Error(w, "Invalid HTTP method", http.StatusMethodNotAllowed)
+		response := APIResponse{
+			IsSuccess: false,
+			UserID:    generateUserID(),
+			Message:   "Invalid HTTP method",
+		}
+		return createResponse(http.StatusMethodNotAllowed, response), nil
 	}
 }
 
@@ -91,19 +103,31 @@ func findHighestAlphabet(alphabets []string) string {
 	return highest
 }
 
-func extractNumbers(data []interface{}) []string {
+func extractNumbers(data []string) []string {
 	var numbers []string
 	for _, item := range data {
-		if s, isString := item.(string); isString {
-			if _, err := json.Number(s).Float64(); err == nil {
-				numbers = append(numbers, s)
-			}
+		if _, err := json.Number(item).Float64(); err == nil {
+			numbers = append(numbers, item)
 		}
 	}
 	return numbers
 }
 
-func jsonResponse(w http.ResponseWriter, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(data)
+func createResponse(statusCode int, data interface{}) events.APIGatewayProxyResponse {
+	responseBody, err := json.Marshal(data)
+	if err != nil {
+		log.Printf("Error marshalling response: %v", err)
+		return events.APIGatewayProxyResponse{
+			StatusCode: http.StatusInternalServerError,
+			Body:       "Internal Server Error",
+		}
+	}
+
+	return events.APIGatewayProxyResponse{
+		StatusCode: statusCode,
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+		},
+		Body: string(responseBody),
+	}
 }
