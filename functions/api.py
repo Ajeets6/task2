@@ -24,8 +24,8 @@ def api():
         response = {
             "is_success": True,
             "user_id": generate_user_id(),
-            "email": "john@xyz.com",
-            "roll_number": "ABCD123",
+            "email": "rk5532@srmist.edu.in",
+            "roll_number": "RA2011030020043",
             "numbers": [char for char in input_data if char.isnumeric()],
             "alphabets": alphabets,
             "highest_alphabet": [highest_alphabet]
@@ -33,10 +33,10 @@ def api():
         return jsonify(response)
 
 def generate_user_id():
-    return "john_doe_17091999"
+    return "rohit_kumar_27062002"
 
 def generate_operation_code():
-    return "your_operation_code_here"
+    return "1"
 
 def find_highest_alphabet(alphabets):
     if not alphabets:
